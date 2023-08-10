@@ -2,6 +2,9 @@ import datetime
 import re
 
 import aiohttp_jinja2
+import hashlib
+import os
+
 from aiohttp import web
 from aiohttp.web_request import Request
 from aiohttp_session import Session
@@ -19,9 +22,15 @@ class LogIn(web.View):
     async def post(self):
         data = await self.request.post()
         username = data.get('username', '').lower()
+        password = data.get('password', '')
 
         try:
-            user = await User.get(username=username)
+            user = await User.get(username=username, password=password)
+            salt = os.urandom(32)
+            encr_password = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+            if encr_password != password:
+                print("Неверный пароль! Повторите попытку")
+                return redirect(self.request, "login")
         except Exception as error:
             print(error)
             redirect(self.request, "login")
@@ -53,6 +62,16 @@ class Register(web.View):
             return ""
         return username
 
+    async def check_password(self) -> dict:
+        data = await self.request.post()
+        password = data.get('password', '')
+        if not re.match(r'^[a-z]\w{0,9}$', password):
+            return {}
+        else:
+            salt = os.urandom(32)
+            password = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        return {salt: password}
+
     def login(self, user: User):
         self.request.session["user_id"] = user.id
         self.request.session["time"] = str(datetime.datetime.now())
@@ -61,20 +80,21 @@ class Register(web.View):
 
     async def post(self):
         username = await self.check_username()
+        password = await self.check_password()
         print('username', username)
 
-        if not username:
+        if not username or password:
             redirect(self.request, "register")
 
         try:
-            await User.get(username=username)
+            await User.get(username=username, password=password)
             # Такой пользователь уже есть!
             redirect(self.request, "login")
         except:
             print("Пользователя нет!")
 
-        await User.create(username=username)
-        user = await User.get(username=username)
+        await User.create(username=username, password=password)
+        user = await User.get(username=username, password=password)
         self.login(user)
 
 

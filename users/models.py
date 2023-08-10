@@ -8,6 +8,7 @@ class User(Base, ModelManagerMixin):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(length=50), nullable=False, unique=True)
+    password = Column(String(100), nullable=False)
 
     def __str__(self):
         return f"User: {self.username}"
