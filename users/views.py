@@ -1,5 +1,7 @@
 import datetime
 import re
+from base64 import encode
+from typing import Callable
 
 import aiohttp_jinja2
 import hashlib
@@ -26,11 +28,12 @@ class LogIn(web.View):
 
         try:
             user = await User.get(username=username, password=password)
-            salt = os.urandom(32)
-            encr_password = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
-            if encr_password != password:
-                print("Неверный пароль! Повторите попытку")
-                return redirect(self.request, "login")
+            password = await user.password
+            origin_salt = bytes.fromhex(user.password[:64])
+            stored_password_hash = bytes.fromhex(user.password[64:])
+            new_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), origin_salt, 100000)
+            if new_hash == stored_password_hash:
+                print("Пароли совпадают")
         except Exception as error:
             print(error)
             redirect(self.request, "login")
@@ -54,6 +57,13 @@ class Register(web.View):
     async def get(self):
         print(self.request)
 
+    @staticmethod
+    def encrypt_password(password):
+        salt = os.urandom(32)
+        key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        encrypt_password = salt.hex() + key.hex()
+        return encrypt_password
+
     async def check_username(self) -> str:
         """ Get username from post data, and check is correct """
         data = await self.request.post()
@@ -62,15 +72,14 @@ class Register(web.View):
             return ""
         return username
 
-    async def check_password(self) -> dict:
+    async def check_password(self) -> str | Callable[[{encode}], str]:
         data = await self.request.post()
         password = data.get('password', '')
         if not re.match(r'^[a-z]\w{0,9}$', password):
-            return {}
+            return ""
         else:
-            salt = os.urandom(32)
-            password = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
-        return {salt: password}
+            password = self.encrypt_password
+        return password
 
     def login(self, user: User):
         self.request.session["user_id"] = user.id
@@ -87,7 +96,7 @@ class Register(web.View):
             redirect(self.request, "register")
 
         try:
-            await User.get(username=username, password=password)
+            await User.get(username=username)
             # Такой пользователь уже есть!
             redirect(self.request, "login")
         except:
