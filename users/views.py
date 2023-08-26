@@ -1,15 +1,11 @@
 import datetime
 import re
-from base64 import encode
-from typing import Callable
 
 import aiohttp_jinja2
 import hashlib
 import os
 
 from aiohttp import web
-from aiohttp.web_request import Request
-from aiohttp_session import Session
 
 from extra import redirect, login_required
 from .models import User
@@ -34,6 +30,8 @@ class LogIn(web.View):
             new_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), origin_salt, 100000)
             if new_hash == stored_password_hash:
                 print("Пароли совпадают")
+            else:
+                raise ValueError("Неверный пароль! Повторите попытку")
         except Exception as error:
             print(error)
             redirect(self.request, "login")
@@ -72,13 +70,11 @@ class Register(web.View):
             return ""
         return username
 
-    async def check_password(self) -> str | Callable[[{encode}], str]:
+    async def check_password(self) -> str:
         data = await self.request.post()
         password = data.get('password', '')
         if not re.match(r'^[a-z]\w{0,9}$', password):
             return ""
-        else:
-            password = self.encrypt_password
         return password
 
     def login(self, user: User):
@@ -95,15 +91,17 @@ class Register(web.View):
         if not username or password:
             redirect(self.request, "register")
 
+        encrypt_password = self.encrypt_password(password)
+
         try:
-            await User.get(username=username)
+            await User.get(username=username, unique=True)
             # Такой пользователь уже есть!
             redirect(self.request, "login")
         except:
             print("Пользователя нет!")
 
-        await User.create(username=username, password=password)
-        user = await User.get(username=username, password=password)
+        await User.create(username=username, password=encrypt_password)
+        user = await User.get(username=username, unique=True)
         self.login(user)
 
 
